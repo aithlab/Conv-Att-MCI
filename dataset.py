@@ -1,5 +1,7 @@
+import os
 import torch
 import numpy as np
+import pandas as pd
 from PIL import Image
 from copy import deepcopy
 from torchvision import transforms
@@ -83,9 +85,9 @@ class Conv_Att_MCI_Dataset(Dataset):
     def split_trn_val_test(self, prob=[0.7,0.15,0.15]): #prob=[trn, val, test]
         _dataset, n_tot = self.make_dataset()
         
-        # for test
-        _dataset['images'] = torch.arange(len(_dataset['images'])) 
-        _dataset['images_aug'] = torch.arange(len(_dataset['images_aug'])) + len(_dataset['images'])
+        # # for test
+        # _dataset['images'] = torch.arange(len(_dataset['images'])) 
+        # _dataset['images_aug'] = torch.arange(len(_dataset['images_aug'])) + len(_dataset['images'])
 
         n_labels = len(_dataset['labels'].unique())
 
