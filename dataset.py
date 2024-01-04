@@ -7,7 +7,8 @@ from copy import deepcopy
 from torchvision import transforms
 from torch.utils.data import Dataset
 
-DATASET_DIR = '/Users/taehwan/Documents/Dataset/Research/MCI-multiple-drawings-main/'
+# DATASET_DIR = '/Users/taehwan/Documents/Dataset/Research/MCI-multiple-drawings-main/' # Mac
+DATASET_DIR = '/home/taehwan/Dataset/Research/MCI-multiple-drawings-main/' # server
 
 class Conv_Att_MCI_Dataset(Dataset):
     def __init__(self, img_type='all'):
