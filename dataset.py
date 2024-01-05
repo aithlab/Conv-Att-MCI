@@ -39,7 +39,7 @@ class Conv_Att_MCI_Dataset(Dataset):
         img_type = ['clock', 'trail', 'copy'] if img_type == 'all' else [img_type]
 
         transform_aug = transforms.Compose([
-            transforms.Pad([12,12,12,12], fill=1), # left, top, right, bottom, fill=1 to match the background color of original images
+            transforms.Pad([12,12,12,12], fill=10), # left, top, right, bottom, fill=1 to match the background color of original images
             transforms.RandomCrop([256,256])
         ])
 
@@ -56,7 +56,7 @@ class Conv_Att_MCI_Dataset(Dataset):
 
                 img = transform(_img)
                 img_aug = transform(transform_aug(_img_aug))
-
+                print(patient_id, img_aug[0])
                 self.dataset_raw[patient_id]['images'] = {'original': img, 'augmented':img_aug}
     
     def make_dataset(self):
