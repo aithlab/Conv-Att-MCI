@@ -39,7 +39,7 @@ class Conv_Att_MCI_Dataset(Dataset):
         img_type = ['clock', 'trail', 'copy'] if img_type == 'all' else [img_type]
 
         transform_aug = transforms.Compose([
-            transforms.Pad([12,12,12,12]), # left, top, right, bottom
+            transforms.Pad([12,12,12,12], fill=1), # left, top, right, bottom, fill=1 to match the background color of original images
             transforms.RandomCrop([256,256])
         ])
 
