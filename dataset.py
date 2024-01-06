@@ -36,7 +36,7 @@ class Conv_Att_MCI_Dataset(Dataset):
         return dataset
 
     def load_images(self, img_type):
-        img_type = ['clock', 'trail', 'copy'] if img_type == 'all' else [img_type]
+        self.img_type = ['clock', 'trail', 'copy'] if img_type == 'all' else [img_type]
 
         transform_aug = transforms.Compose([
             transforms.Pad([12,12,12,12], fill=255), # left, top, right, bottom, fill=255 to match the background color of original images
@@ -48,7 +48,7 @@ class Conv_Att_MCI_Dataset(Dataset):
                 ])
 
         for patient_id in self.dataset_raw:
-            for _type in img_type:
+            for _type in self.img_type:
                 _img_path = self.dataset_raw[patient_id][_type]
                 _img = Image.open(_img_path)
                 assert _img.size == (256,256)
@@ -56,25 +56,35 @@ class Conv_Att_MCI_Dataset(Dataset):
 
                 img = transform(_img)
                 img_aug = transform(transform_aug(_img_aug))
-                print(patient_id, img_aug[0])
-                self.dataset_raw[patient_id]['images'] = {'original': img, 'augmented':img_aug}
+                self.dataset_raw[patient_id][_type] = {'original': img, 'augmented':img_aug}
     
     def make_dataset(self):
-        images, images_aug, labels, scores = [],[],[],[]
+        images = {_type:[] for _type in self.img_type}
+        images_aug = {_type:[] for _type in self.img_type}
+        labels, scores = [],[]
         for patient_id in self.dataset_raw:
-            _img = self.dataset_raw[patient_id]['images']['original']
-            _img_aug = self.dataset_raw[patient_id]['images']['augmented']
+            for _type in self.img_type:
+                _img = self.dataset_raw[patient_id][_type]['original']
+                _img_aug = self.dataset_raw[patient_id][_type]['augmented']
+                images[_type].append(_img)
+                images_aug[_type].append(_img_aug)
+            
             _score = self.dataset_raw[patient_id]['score']
-            images.append(_img)
-            images_aug.append(_img_aug)
             scores.append(_score)
             labels.append(_score < 25)
-        dataset = {'images':torch.stack(images), 
-                   'images_aug':torch.stack(images_aug),
-                   'scores':torch.Tensor(scores),
+        dataset = {'scores':torch.Tensor(scores),
                    'labels':torch.Tensor(labels)}
-        n_tot = len(dataset['images'])
-        assert n_tot == len(dataset['images_aug']) == len(dataset['scores']) == len(dataset['labels']), "%d %s %s %s"%(n_tot, dataset['images_aug'].shape, dataset['scores'].shape, dataset['labels'].shape)
+        
+        for _type in self.img_type:
+            dataset.update({
+                _type:torch.stack(images[_type]), 
+                _type+'_aug':torch.stack(images_aug[_type]),
+            })
+        
+        n_tot = len(dataset['labels'])
+        assert n_tot == len(dataset['scores']), "%d %s"%(n_tot, dataset['scores'].shape)
+        for _type in self.img_type:
+            assert n_tot == len(dataset[_type]) == len(dataset[_type+'_aug']), "%d %s"%(n_tot, dataset[_type].shape, dataset[_type+'_aug'].shape)
         return dataset, n_tot
     
     def random_select_idxs(self, idxs, n):
@@ -124,10 +134,13 @@ class Conv_Att_MCI_Dataset(Dataset):
     def _split(self, _dataset):
         soft_label = self.get_soft_label(_dataset['scores'])
         self.dataset = {
-            'images':torch.cat([_dataset['images'], _dataset['images_aug']]),
             'labels':torch.cat([_dataset['labels'], _dataset['labels']]),
             'scores':torch.cat([soft_label, soft_label])
         }
+        for _type in self.img_type:
+            self.dataset.update({
+                _type:torch.cat([_dataset[_type], _dataset[_type+'_aug']]),
+            })
         return deepcopy(self)
     
     def __len__(self):
@@ -137,7 +150,9 @@ class Conv_Att_MCI_Dataset(Dataset):
         return 1 - torch.sigmoid(scores - 24.5)
 
     def __getitem__(self, idx):
-        images = self.dataset['images'][idx]
+        images = []
+        for _type in self.img_type:
+            images.append(self.dataset[_type][idx])
         scores = self.dataset['scores'][idx]
         labels = self.dataset['labels'][idx]
         return images, scores, {'labels':labels}

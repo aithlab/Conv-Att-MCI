@@ -3,13 +3,17 @@ import torchvision.models as models
 from torch import nn
 
 class BaseModel(nn.Module):
-    def __init__(self):
+    def __init__(self, img_type, vgg16_freezing=True):
         super().__init__()
-        self.build_network()
+        self.build_network(img_type, vgg16_freezing)
 
-    def build_network(self):
-        self.vgg16_model = models.vgg16(pretrained=True).features
-        self.vgg16_model.eval()
+    def build_network(self, img_type, vgg16_freezing):
+        n_img_type = len(img_type)
+        self.vgg16_models = nn.ModuleList()
+        for _ in range(n_img_type):
+            self.vgg16_models.append(models.vgg16(pretrained=True).features)
+            if vgg16_freezing:
+                self.vgg16_models[-1].eval()
 
         self.network = nn.Sequential(
             nn.AdaptiveAvgPool2d([1,1]),
@@ -17,20 +21,27 @@ class BaseModel(nn.Module):
             nn.Linear(512,2)
         )
     
-    def forward(self, x):
-        x = self.vgg16_model(x)
+    def forward(self, xs):
+        x_cat = []
+        for i, x in enumerate(xs):
+            x = self.vgg16_models[i](x) # (B, C, H, W)
+            x_cat.append(x)
+        x = torch.cat(x_cat, -1)
         y = self.network(x)
         return y
     
 class VGG16GradCAM(nn.Module):
-    def __init__(self):
+    def __init__(self, img_type, vgg16_freezing=True):
         super().__init__()
-        self.build_network()
+        self.build_network(img_type, vgg16_freezing)
         
-    def build_network(self):
-        # VGG16 모델 불러오기 (사전 훈련된)
-        self.vgg16_model = models.vgg16(pretrained=True).features
-        # self.vgg16_model.eval()
+    def build_network(self, img_type, vgg16_freezing):
+        n_img_type = len(img_type)
+        self.vgg16_models = nn.ModuleList()
+        for _ in range(n_img_type):
+            self.vgg16_models.append(models.vgg16(pretrained=True).features)
+            if vgg16_freezing:
+                self.vgg16_models[-1].eval()
         
         self.network = nn.Sequential(
             nn.AdaptiveAvgPool2d([1,1]),
@@ -43,12 +54,15 @@ class VGG16GradCAM(nn.Module):
     def activations_hook(self, grad):
         self.gradients = grad
 
-    def forward(self, x):
-        x = self.vgg16_model(x)
-
-        # 특성 맵에 대한 그래디언트를 저장하기 위한 훅 등록
-        h = x.register_hook(self.activations_hook)
-
+    def forward(self, xs):
+        x_cat = []
+        for i, x in enumerate(xs):
+            x = self.vgg16_models[i](x) # (B, C, H, W)
+            
+            # 특성 맵에 대한 그래디언트를 저장하기 위한 훅 등록
+            h = x.register_hook(self.activations_hook)
+            x_cat.append(x)
+        x = torch.cat(x_cat, -1)
         y = self.network(x)
         return y
 
@@ -70,35 +84,44 @@ class VGG16GradCAM(nn.Module):
         return heatmap
 
 class ConvAttnModel(nn.Module):
-    def __init__(self, h_dim_attn, n_heads, h_dim_fc, n_layers, vgg16_freezing=True):
+    def __init__(self, img_type, h_dim_attn, n_heads, h_dim_fc, n_layers, vgg16_freezing=True):
         super().__init__()
         self.h_dim_attn = h_dim_attn
-        self.build_network(n_heads, h_dim_fc, n_layers, vgg16_freezing)
+        self.build_network(img_type, n_heads, h_dim_fc, n_layers, vgg16_freezing)
         
-    def build_network(self, n_heads, h_dim_fc, n_layers, vgg16_freezing):
-        self.vgg16_model = models.vgg16(pretrained=True).features
-        if vgg16_freezing:
-            self.vgg16_model.eval()
-        vgg_out_channels = self.vgg16_model[-3].out_channels
-        self.conv_1x1 = nn.Conv2d(vgg_out_channels, self.h_dim_attn, 1)
+    def build_network(self, img_type, n_heads, h_dim_fc, n_layers, vgg16_freezing):
+        n_img_type = len(img_type)
+        
+        self.vgg16_models, self.conv_1x1s, self.attns = nn.ModuleList(),nn.ModuleList(),nn.ModuleList()
+        
+        for _ in range(n_img_type):
+            self.vgg16_models.append(models.vgg16(pretrained=True).features)
+            if vgg16_freezing:
+                self.vgg16_models[-1].eval()
+            vgg_out_channels = self.vgg16_models[-1][-3].out_channels
+            self.conv_1x1s.append(nn.Conv2d(vgg_out_channels, self.h_dim_attn, 1))
 
-        enc_layer = nn.TransformerEncoderLayer(self.h_dim_attn, n_heads, h_dim_fc, batch_first=True)    
-        self.attn = nn.TransformerEncoder(enc_layer, n_layers)    
+            enc_layer = nn.TransformerEncoderLayer(self.h_dim_attn, n_heads, h_dim_fc, batch_first=True)    
+            self.attns.append(nn.TransformerEncoder(enc_layer, n_layers))
 
         self.network = nn.Sequential(
-            nn.Linear(self.h_dim_attn, 2)
+            nn.Linear(self.h_dim_attn*n_img_type, 2)
         )
     
-    def forward(self, x):
-        x_tilde = self.vgg16_model(x) # (B, C, H, W)
-        x_tilde = self.conv_1x1(x_tilde) # (B, D, H, W)
+    def forward(self, xs):
+        x_cat = []
+        for i,x in enumerate(xs):
+            x_tilde = self.vgg16_models[i](x) # (B, C, H, W)
+            x_tilde = self.conv_1x1s[i](x_tilde) # (B, D, H, W)
 
-        _x_tilde = x_tilde.flatten(2).permute(0,2,1) #(B, HW, D)
-        cls_rand_token = torch.randn(_x_tilde.shape[0], 1, self.h_dim_attn).to(_x_tilde) #(B, 1, D)
-        # cls_rand_token = torch.zeros(_x_tilde.shape[0], 1, self.h_dim_attn).to(_x_tilde) #(B, 1, D)
-        cls_x_tilde = torch.cat([cls_rand_token, _x_tilde], 1) # (B, HW+1, D)
-        x_attn = self.attn(cls_x_tilde) # (B, HW+1, D)
+            _x_tilde = x_tilde.flatten(2).permute(0,2,1) #(B, HW, D)
+            cls_rand_token = torch.randn(_x_tilde.shape[0], 1, self.h_dim_attn).to(_x_tilde) #(B, 1, D)
+            # cls_rand_token = torch.zeros(_x_tilde.shape[0], 1, self.h_dim_attn).to(_x_tilde) #(B, 1, D)
+            cls_x_tilde = torch.cat([cls_rand_token, _x_tilde], 1) # (B, HW+1, D)
+            x_attn = self.attns[i](cls_x_tilde) # (B, HW+1, D)
 
-        x = x_attn[:,0] #(B, D)
+            x = x_attn[:,0] #(B, D)
+            x_cat.append(x)
+        x = torch.cat(x_cat, -1)
         y = self.network(x)
         return y
