@@ -48,14 +48,14 @@ class VGG16GradCAM(nn.Module):
             nn.Flatten(1),
             nn.Linear(512,2)
         )
-        self.gradients = None
-    
+        
     # 훅(hook) 등록을 위한 함수
     def activations_hook(self, grad):
-        self.gradients = grad
+        self.gradients.append(grad)
 
     def forward(self, xs):
         x_cat = []
+        self.gradients = []
         for i, x in enumerate(xs):
             x = self.vgg16_models[i](x) # (B, C, H, W)
             
@@ -67,21 +67,24 @@ class VGG16GradCAM(nn.Module):
         return y
 
     # Grad-CAM 처리 함수
-    def generate_cam(self, input_image, class_idx):
+    def generate_cam(self, xs, class_idx):
         # 모델의 예측값과 그래디언트를 얻기 위한 forward pass
-        model_output = self.forward(input_image)
+        model_output = self.forward(xs)
         model_output[:, class_idx].backward()
 
-        gradients = self.gradients.data
-        pooled_gradients = torch.mean(gradients, dim=[2, 3])
-        activations = self.vgg16_model(input_image).data
+        heatmaps = []
+        for i, x in enumerate(xs):
+            gradients = self.gradients[i].data
+            pooled_gradients = torch.mean(gradients, dim=[2, 3])
+            activations = self.vgg16_models[i](x).data
 
-        activations *= pooled_gradients[:, :, None, None]
+            activations *= pooled_gradients[:, :, None, None]
 
-        heatmap = torch.mean(activations, dim=1)
-        heatmap = torch.clamp(heatmap, min=0)
-        heatmap /= torch.max(heatmap)
-        return heatmap
+            heatmap = torch.mean(activations, dim=1)
+            heatmap = torch.clamp(heatmap, min=0)
+            heatmap /= torch.max(heatmap)
+            heatmaps.append(heatmap)
+        return heatmaps
 
 class ConvAttnModel(nn.Module):
     def __init__(self, img_type, h_dim_attn, n_heads, h_dim_fc, n_layers, vgg16_freezing=True):
