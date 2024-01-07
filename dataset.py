@@ -11,7 +11,8 @@ from torch.utils.data import Dataset
 DATASET_DIR = '/home/taehwan/Dataset/Research/MCI-multiple-drawings-main/' # server
 
 class Conv_Att_MCI_Dataset(Dataset):
-    def __init__(self, img_type='all'):
+    def __init__(self, img_type='all', is_soft_label=False):
+        self.is_soft_label = is_soft_label
         self.dataset_raw = self.load_dataset()
         self.load_images(img_type)
 
@@ -160,4 +161,8 @@ class Conv_Att_MCI_Dataset(Dataset):
         scores = self.dataset['scores'][idx]
         labels = self.dataset['labels'][idx]
         patient_ids = self.dataset['patient_ids'][idx]
-        return images, scores, {'labels':labels, 'patient_ids':patient_ids}
+        info = {'labels':labels, 'scores':scores, 'patient_ids':patient_ids}
+        if self.is_soft_label:
+            return images, scores, info
+        else:
+            return images, labels, info
