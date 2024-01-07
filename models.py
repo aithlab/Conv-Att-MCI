@@ -2,18 +2,34 @@ import torch
 import torchvision.models as models
 from torch import nn
 
-class BaseModel(nn.Module):
-    def __init__(self, img_type, vgg16_freezing=True):
+class BaseModule(nn.Module):
+    def __init__(self):
         super().__init__()
-        self.build_network(img_type, vgg16_freezing)
 
-    def build_network(self, img_type, vgg16_freezing):
-        n_img_type = len(img_type)
+    def _build_backbone(self, n_img_type, vgg16_freezing):
         self.vgg16_models = nn.ModuleList()
         for _ in range(n_img_type):
             self.vgg16_models.append(models.vgg16(pretrained=True).features)
             if vgg16_freezing:
-                self.vgg16_models[-1].eval()
+                for p in self.vgg16_models[-1].parameters():
+                    p.requires_grad = False
+
+    def _get_features(self, xs):
+        x_cat = []
+        for i, x in enumerate(xs):
+            x = self.vgg16_models[i](x) # (B, C, H, W)
+            x_cat.append(x)
+        x = torch.cat(x_cat, -1)
+        return x
+
+class BaseModel(BaseModule):
+    def __init__(self, img_type, vgg16_freezing=True):
+        super().__init__()
+        self.build_network(img_type, vgg16_freezing)
+       
+    def build_network(self, img_type, vgg16_freezing):
+        n_img_type = len(img_type)
+        self._build_backbone(n_img_type, vgg16_freezing)
 
         self.network = nn.Sequential(
             nn.AdaptiveAvgPool2d([1,1]),
@@ -22,26 +38,18 @@ class BaseModel(nn.Module):
         )
     
     def forward(self, xs):
-        x_cat = []
-        for i, x in enumerate(xs):
-            x = self.vgg16_models[i](x) # (B, C, H, W)
-            x_cat.append(x)
-        x = torch.cat(x_cat, -1)
+        x = self._get_features(xs)
         y = self.network(x)
         return y
     
-class VGG16GradCAM(nn.Module):
+class VGG16GradCAM(BaseModule):
     def __init__(self, img_type, vgg16_freezing=True):
         super().__init__()
         self.build_network(img_type, vgg16_freezing)
         
     def build_network(self, img_type, vgg16_freezing):
         n_img_type = len(img_type)
-        self.vgg16_models = nn.ModuleList()
-        for _ in range(n_img_type):
-            self.vgg16_models.append(models.vgg16(pretrained=True).features)
-            if vgg16_freezing:
-                self.vgg16_models[-1].eval()
+        self._build_backbone(n_img_type, vgg16_freezing)
         
         self.network = nn.Sequential(
             nn.AdaptiveAvgPool2d([1,1]),
@@ -54,6 +62,14 @@ class VGG16GradCAM(nn.Module):
         self.gradients.append(grad)
 
     def forward(self, xs):
+        x = self._get_features(xs)
+        y = self.network(x)
+        return y
+
+    # Grad-CAM 처리 함수
+    def generate_cam(self, xs, class_idx):
+        # 모델의 예측값과 그래디언트를 얻기 위한 forward pass
+        # model_output = self.forward(xs)
         x_cat = []
         self.gradients = []
         for i, x in enumerate(xs):
@@ -64,13 +80,7 @@ class VGG16GradCAM(nn.Module):
             x_cat.append(x)
         x = torch.cat(x_cat, -1)
         y = self.network(x)
-        return y
-
-    # Grad-CAM 처리 함수
-    def generate_cam(self, xs, class_idx):
-        # 모델의 예측값과 그래디언트를 얻기 위한 forward pass
-        model_output = self.forward(xs)
-        model_output[:, class_idx].backward()
+        y[:, class_idx].backward()
 
         heatmaps = []
         for i, x in enumerate(xs):
@@ -86,7 +96,7 @@ class VGG16GradCAM(nn.Module):
             heatmaps.append(heatmap)
         return heatmaps
 
-class ConvAttnModel(nn.Module):
+class ConvAttnModel(BaseModule):
     def __init__(self, img_type, h_dim_attn, n_heads, h_dim_fc, n_layers, vgg16_freezing=True):
         super().__init__()
         self.h_dim_attn = h_dim_attn
@@ -94,14 +104,11 @@ class ConvAttnModel(nn.Module):
         
     def build_network(self, img_type, n_heads, h_dim_fc, n_layers, vgg16_freezing):
         n_img_type = len(img_type)
+        self._build_backbone(n_img_type, vgg16_freezing)
+        vgg_out_channels = self.vgg16_models[-1][-3].out_channels
         
-        self.vgg16_models, self.conv_1x1s, self.attns = nn.ModuleList(),nn.ModuleList(),nn.ModuleList()
-        
+        self.conv_1x1s, self.attns = nn.ModuleList(),nn.ModuleList()
         for _ in range(n_img_type):
-            self.vgg16_models.append(models.vgg16(pretrained=True).features)
-            if vgg16_freezing:
-                self.vgg16_models[-1].eval()
-            vgg_out_channels = self.vgg16_models[-1][-3].out_channels
             self.conv_1x1s.append(nn.Conv2d(vgg_out_channels, self.h_dim_attn, 1))
 
             enc_layer = nn.TransformerEncoderLayer(self.h_dim_attn, n_heads, h_dim_fc, batch_first=True)    
