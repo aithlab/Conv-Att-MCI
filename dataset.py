@@ -61,7 +61,7 @@ class Conv_Att_MCI_Dataset(Dataset):
     def make_dataset(self):
         images = {_type:[] for _type in self.img_type}
         images_aug = {_type:[] for _type in self.img_type}
-        labels, scores = [],[]
+        labels, scores, patient_ids = [],[],[]
         for patient_id in self.dataset_raw:
             for _type in self.img_type:
                 _img = self.dataset_raw[patient_id][_type]['original']
@@ -72,8 +72,11 @@ class Conv_Att_MCI_Dataset(Dataset):
             _score = self.dataset_raw[patient_id]['score']
             scores.append(_score)
             labels.append(_score < 25)
+            patient_ids.append(patient_id)
         dataset = {'scores':torch.Tensor(scores),
-                   'labels':torch.Tensor(labels)}
+                   'labels':torch.Tensor(labels),
+                   'patient_ids':torch.LongTensor(patient_ids)
+                  }
         
         for _type in self.img_type:
             dataset.update({
@@ -135,7 +138,8 @@ class Conv_Att_MCI_Dataset(Dataset):
         soft_label = self.get_soft_label(_dataset['scores'])
         self.dataset = {
             'labels':torch.cat([_dataset['labels'], _dataset['labels']]),
-            'scores':torch.cat([soft_label, soft_label])
+            'scores':torch.cat([soft_label, soft_label]),
+            'patient_ids':torch.cat([_dataset['patient_ids'], _dataset['patient_ids']])
         }
         for _type in self.img_type:
             self.dataset.update({
@@ -155,4 +159,5 @@ class Conv_Att_MCI_Dataset(Dataset):
             images.append(self.dataset[_type][idx])
         scores = self.dataset['scores'][idx]
         labels = self.dataset['labels'][idx]
-        return images, scores, {'labels':labels}
+        patient_ids = self.dataset['patient_ids'][idx]
+        return images, scores, {'labels':labels, 'patient_ids':patient_ids}
