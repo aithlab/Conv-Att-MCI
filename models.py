@@ -6,6 +6,9 @@ class BaseModule(nn.Module):
     def __init__(self):
         super().__init__()
 
+    def _get_img_type(self, img_type):
+        self._n_img_type = ['clock', 'trail', 'copy'] if len(img_type) == 1 and img_type[0] == 'all' else img_type
+    
     def _build_backbone(self, n_img_type, vgg16_freezing):
         self.vgg16_models = nn.ModuleList()
         for _ in range(n_img_type):
@@ -28,7 +31,8 @@ class BaseModel(BaseModule):
         self.build_network(img_type, vgg16_freezing)
        
     def build_network(self, img_type, vgg16_freezing):
-        n_img_type = len(img_type)
+        self._get_img_type(img_type)
+        n_img_type = len(self._n_img_type)
         self._build_backbone(n_img_type, vgg16_freezing)
 
         self.network = nn.Sequential(
@@ -48,7 +52,8 @@ class VGG16GradCAM(BaseModule):
         self.build_network(img_type, vgg16_freezing)
         
     def build_network(self, img_type, vgg16_freezing):
-        n_img_type = len(img_type)
+        self._get_img_type(img_type)
+        n_img_type = len(self._n_img_type)
         self._build_backbone(n_img_type, vgg16_freezing)
         
         self.network = nn.Sequential(
@@ -103,7 +108,8 @@ class ConvAttnModel(BaseModule):
         self.build_network(img_type, n_heads, h_dim_fc, n_layers, vgg16_freezing)
         
     def build_network(self, img_type, n_heads, h_dim_fc, n_layers, vgg16_freezing):
-        n_img_type = len(img_type)
+        self._get_img_type(img_type)
+        n_img_type = len(self._n_img_type)
         self._build_backbone(n_img_type, vgg16_freezing)
         vgg_out_channels = self.vgg16_models[-1][-3].out_channels
         

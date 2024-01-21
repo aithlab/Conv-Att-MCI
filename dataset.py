@@ -37,7 +37,7 @@ class Conv_Att_MCI_Dataset(Dataset):
         return dataset
 
     def load_images(self, img_type):
-        self.img_type = ['clock', 'trail', 'copy'] if img_type == 'all' else [img_type]
+        self.img_type = ['clock', 'trail', 'copy'] if len(img_type) == 1 and img_type[0] == 'all' else img_type
 
         transform_aug = transforms.Compose([
             transforms.Pad([12,12,12,12], fill=255), # left, top, right, bottom, fill=255 to match the background color of original images
