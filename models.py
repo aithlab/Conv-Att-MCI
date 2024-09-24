@@ -9,7 +9,7 @@ class BaseModule(nn.Module):
     def _get_img_type(self, img_type):
         self._n_img_type = ['clock', 'trail', 'copy'] if len(img_type) == 1 and img_type[0] == 'all' else img_type
     
-    def _build_backbone(self, n_img_type, vgg16_freezing):
+    def _build_backbone_vgg16(self, n_img_type, vgg16_freezing):
         self.vgg16_models = nn.ModuleList()
         for _ in range(n_img_type):
             self.vgg16_models.append(models.vgg16(pretrained=True).features)
@@ -33,7 +33,7 @@ class BaseModel(BaseModule):
     def build_network(self, img_type, vgg16_freezing):
         self._get_img_type(img_type)
         n_img_type = len(self._n_img_type)
-        self._build_backbone(n_img_type, vgg16_freezing)
+        self._build_backbone_vgg16(n_img_type, vgg16_freezing)
 
         self.network = nn.Sequential(
             nn.AdaptiveAvgPool2d([1,1]),
@@ -54,7 +54,7 @@ class VGG16GradCAM(BaseModule):
     def build_network(self, img_type, vgg16_freezing):
         self._get_img_type(img_type)
         n_img_type = len(self._n_img_type)
-        self._build_backbone(n_img_type, vgg16_freezing)
+        self._build_backbone_vgg16(n_img_type, vgg16_freezing)
         
         self.network = nn.Sequential(
             nn.AdaptiveAvgPool2d([1,1]),
@@ -110,7 +110,7 @@ class ConvAttnModel(BaseModule):
     def build_network(self, img_type, n_heads, h_dim_fc, n_layers, vgg16_freezing):
         self._get_img_type(img_type)
         n_img_type = len(self._n_img_type)
-        self._build_backbone(n_img_type, vgg16_freezing)
+        self._build_backbone_vgg16(n_img_type, vgg16_freezing)
         vgg_out_channels = self.vgg16_models[-1][-3].out_channels
         
         self.conv_1x1s, self.attns = nn.ModuleList(),nn.ModuleList()
@@ -121,7 +121,12 @@ class ConvAttnModel(BaseModule):
             self.attns.append(nn.TransformerEncoder(enc_layer, n_layers))
 
         self.network = nn.Sequential(
-            nn.Linear(self.h_dim_attn*n_img_type, 2)
+            # nn.Linear(self.h_dim_attn*n_img_type, 2),
+            nn.Linear(self.h_dim_attn*n_img_type, self.h_dim_attn),
+            nn.ReLU(),
+            nn.Linear(self.h_dim_attn, self.h_dim_attn),
+            nn.ReLU(),
+            nn.Linear(self.h_dim_attn, 2)
         )
     
     def forward(self, xs):
